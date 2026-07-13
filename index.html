@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>سودوكو - Sudoku</title>
+    <style>
+        :root{--safe-bottom:env(safe-area-inset-bottom,8px)}
+        *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+        body{background:#1a1a2e;overflow-y:auto;touch-action:manipulation;position:fixed;top:0;left:0;width:100vw;height:100dvh;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center}
+        #container{width:100%;max-width:420px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:8px}
+        #header{display:flex;justify-content:space-between;align-items:center;width:100%;color:#fff}
+        #header h1{font-size:1.3em;color:#ff9800}
+        #difficulty{display:flex;gap:4px}
+        .diffBtn{padding:6px 10px;border:none;border-radius:12px;font-size:0.65em;font-weight:bold;cursor:pointer;background:#333;color:#aaa;transition:all 0.2s}
+        .diffBtn.active{background:#ff9800;color:#000}
+        #info{display:flex;justify-content:space-between;width:100%;color:#ccc;font-size:0.75em}
+        #timer{color:#ffd700;font-weight:bold}
+        canvas{width:100%;aspect-ratio:1;border:3px solid #ff9800;border-radius:6px;cursor:pointer;background:#000}
+        #numpad{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;width:100%}
+        .numBtn{padding:11px;border:none;border-radius:8px;font-size:1.1em;font-weight:bold;cursor:pointer;background:#16213e;color:#fff;transition:all 0.15s;border:2px solid #0f3460}
+        .numBtn:active{background:#ff9800;color:#000;transform:scale(0.9)}
+        .numBtn.used{opacity:0.3;pointer-events:none}
+        #actions{display:flex;gap:5px;width:100%}
+        .actBtn{flex:1;padding:10px;border:none;border-radius:8px;font-size:0.85em;font-weight:bold;cursor:pointer;background:#333;color:#fff;transition:all 0.15s}
+        .actBtn:active{transform:scale(0.95)}
+        #eraseBtn{background:#f44336}
+        #noteBtn{background:#2196F3}
+        #noteBtn.active{background:#ff9800;color:#000}
+        #newBtn{background:#4caf50}
+        #message{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.9);color:#ffd700;padding:10px 25px;border-radius:20px;font-weight:bold;z-index:100;opacity:0;transition:opacity 0.3s;white-space:nowrap}
+        #message.show{opacity:1}
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="header"><h1>🧩 سودوكو</h1>
+            <div id="difficulty"><button class="diffBtn active" data-diff="easy">سهل</button><button class="diffBtn" data-diff="medium">متوسط</button><button class="diffBtn" data-diff="hard">صعب</button></div>
+        </div>
+        <div id="info"><span id="timer">⏱️ 00:00</span><span>🏆 أفضل: <span id="bestTime">--</span></span></div>
+        <canvas id="c"></canvas>
+        <div id="numpad">
+            <button class="numBtn">1</button><button class="numBtn">2</button><button class="numBtn">3</button><button class="numBtn">4</button><button class="numBtn">5</button>
+            <button class="numBtn">6</button><button class="numBtn">7</button><button class="numBtn">8</button><button class="numBtn">9</button><button class="numBtn" style="background:#ff9800;color:#000">✓</button>
+        </div>
+        <div id="actions">
+            <button class="actBtn" id="eraseBtn">🗑️ مسح</button>
+            <button class="actBtn" id="noteBtn">📝 ملاحظات</button>
+            <button class="actBtn" id="newBtn">🔄 جديد</button>
+        </div>
+    </div>
+    <div id="message"></div>
+
+    <script>
+        const c=document.getElementById('c'),ctx=c.getContext('2d');
+        const timerEl=document.getElementById('timer'),bestEl=document.getElementById('bestTime'),msgEl=document.getElementById('message');
+        let board=[],solution=[],notes=[],sel=null,noteMode=false,timer=0,ti=null,over=false,diff='easy';
+        const clues={easy:40,medium:30,hard:22};
+        let cs=0,bs=0,bx=0,by=0;
+
+        function R(){
+            const rect=c.getBoundingClientRect();
+            c.width=rect.width*2;c.height=rect.height*2;
+            bs=Math.min(c.width,c.height);cs=bs/9;
+            bx=(c.width-bs)/2;by=(c.height-bs)/2;
+            draw();
+        }
+        window.addEventListener('resize',R);
+
+        function msg(t){msgEl.textContent=t;msgEl.classList.add('show');setTimeout(()=>msgEl.classList.remove('show'),1800)}
+
+        function gen(){
+            const g=Array(9).fill().map(()=>Array(9).fill(0));
+            function ok(g,r,c,n){
+                for(let i=0;i<9;i++){if(g[r][i]===n||g[i][c]===n)return false}
+                const sr=Math.floor(r/3)*3,sc=Math.floor(c/3)*3;
+                for(let i=sr;i<sr+3;i++)for(let j=sc;j<sc+3;j++)if(g[i][j]===n)return false;
+                return true;
+            }
+            function fill(g){
+                for(let r=0;r<9;r++)for(let c=0;c<9;c++)if(g[r][c]===0){
+                    const nums=[1,2,3,4,5,6,7,8,9].sort(()=>Math.random()-0.5);
+                    for(let n of nums)if(ok(g,r,c,n)){g[r][c]=n;if(fill(g))return true;g[r][c]=0}
+                    return false;
+                }
+                return true;
+            }
+            fill(g);solution=g.map(r=>[...r]);
+            const bc=g.map(r=>[...r]),pos=[];
+            for(let r=0;r<9;r++)for(let c=0;c<9;c++)pos.push([r,c]);
+            pos.sort(()=>Math.random()-0.5);
+            for(let i=0;i<81-clues[diff];i++){const[r,c]=pos[i];bc[r][c]=0}
+            board=bc;notes=Array(9).fill().map(()=>Array(9).fill().map(()=>[]));
+            sel=null;noteMode=false;over=false;timer=0;
+            clearInterval(ti);ti=setInterval(()=>{if(!over){timer++;updateTimer()}},1000);
+            updateTimer();R();updateNumPad();
+        }
+
+        function updateTimer(){const m=Math.floor(timer/60),s=timer%60;timerEl.textContent=`⏱️ ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
+
+        function draw(){
+            ctx.clearRect(0,0,c.width,c.height);
+            ctx.fillStyle='#16213e';ctx.fillRect(bx,by,bs,bs);
+            
+            for(let r=0;r<9;r++)for(let c=0;c<9;c++){
+                const x=bx+c*cs,y=by+r*cs;
+                if(sel){
+                    if(r===sel.r||c===sel.c||(Math.floor(r/3)===Math.floor(sel.r/3)&&Math.floor(c/3)===Math.floor(sel.c/3))){
+                        ctx.fillStyle='rgba(15,52,96,0.5)';ctx.fillRect(x,y,cs,cs);
+                    }
+                    if(board[r][c]!==0&&board[sel.r]&&board[r][c]===board[sel.r][sel.c]){
+                        ctx.fillStyle='rgba(255,152,0,0.25)';ctx.fillRect(x,y,cs,cs);
+                    }
+                }
+                if(sel&&r===sel.r&&c===sel.c){
+                    ctx.fillStyle='#0f3460';ctx.fillRect(x,y,cs,cs);
+                    ctx.strokeStyle='#ff9800';ctx.lineWidth=3;ctx.strokeRect(x+2,y+2,cs-4,cs-4);
+                }
+                if(board[r][c]!==0){
+                    ctx.fillStyle=solution[r][c]===board[r][c]?'#fff':'#f44336';
+                    if(solution[r][c]!==board[r][c]&&board[r][c]!==0)ctx.fillStyle='#f44336';
+                    else if(board[r][c]!==0&&solution[r][c]===board[r][c])ctx.fillStyle='#fff';
+                    else ctx.fillStyle='#4fc3f7';
+                    ctx.font=`bold ${cs*0.55}px Arial`;ctx.textAlign='center';ctx.textBaseline='middle';
+                    ctx.fillText(board[r][c],x+cs/2,y+cs/2);
+                }
+                if(notes[r][c].length>0&&board[r][c]===0){
+                    ctx.fillStyle='#aaa';const ns=cs/3;ctx.font=`${ns*0.6}px Arial`;
+                    for(let n=0;n<notes[r][c].length;n++){
+                        const num=notes[r][c][n],nr=Math.floor((num-1)/3),nc=(num-1)%3;
+                        ctx.fillText(num,x+nc*ns+ns/2,y+nr*ns+ns/2);
+                    }
+                }
+            }
+            
+            // خطوط رفيعة
+            ctx.strokeStyle='#0f3460';ctx.lineWidth=1;
+            for(let i=0;i<=9;i++){
+                ctx.beginPath();ctx.moveTo(bx+i*cs,by);ctx.lineTo(bx+i*cs,by+bs);ctx.stroke();
+                ctx.beginPath();ctx.moveTo(bx,by+i*cs);ctx.lineTo(bx+bs,by+i*cs);ctx.stroke();
+            }
+            
+            // خطوط سميكة - بعد العمود 3 و 6 (يعني i=3 و i=6)
+            ctx.strokeStyle='#ff9800';ctx.lineWidth=3;
+            [0,3,6,9].forEach(i=>{
+                ctx.beginPath();ctx.moveTo(bx+i*cs,by);ctx.lineTo(bx+i*cs,by+bs);ctx.stroke();
+                ctx.beginPath();ctx.moveTo(bx,by+i*cs);ctx.lineTo(bx+bs,by+i*cs);ctx.stroke();
+            });
+        }
+
+        c.addEventListener('click',e=>{
+            const rect=c.getBoundingClientRect();
+            const sx=c.width/rect.width,sy=c.height/rect.height;
+            const mx=(e.clientX-rect.left)*sx,my=(e.clientY-rect.top)*sy;
+            const col=Math.floor((mx-bx)/cs),row=Math.floor((my-by)/cs);
+            if(row>=0&&row<9&&col>=0&&col<9)select(row,col);
+        });
+
+        function select(r,c){if(board[r][c]!==0&&solution[r][c]===board[r][c])return;sel={r,c};draw();updateNumPad();}
+
+        function place(n){
+            if(!sel||over)return;const{r,c}=sel;
+            if(board[r][c]!==0&&solution[r][c]===board[r][c])return;
+            if(noteMode){
+                if(board[r][c]===0){
+                    if(notes[r][c].includes(n))notes[r][c]=notes[r][c].filter(x=>x!==n);
+                    else notes[r][c].push(n);
+                }
+            }else{
+                notes[r][c]=[];
+                if(board[r][c]===n)board[r][c]=0;else board[r][c]=n;
+                if(board[r][c]!==0&&solution[r][c]!==board[r][c])msg('❌ رقم غلط!');
+                if(done()&&right()){over=true;clearInterval(ti);msg('🎉 مبروك! كسبت!');
+                    const best=localStorage.getItem('sb_'+diff);
+                    if(!best||timer<parseInt(best)){localStorage.setItem('sb_'+diff,timer);bestEl.textContent=fmt(timer);msg('🏆 رقم قياسي جديد!');}
+                }
+            }
+            draw();updateNumPad();
+        }
+
+        function erase(){if(!sel||over)return;const{r,c}=sel;if(board[r][c]!==0&&solution[r][c]!==board[r][c]){board[r][c]=0;notes[r][c]=[]}draw();updateNumPad();}
+
+        function updateNumPad(){
+            document.querySelectorAll('.numBtn').forEach((b,i)=>{
+                if(i<9){let cnt=0;for(let r=0;r<9;r++)for(let c=0;c<9;c++)if(board[r][c]===i+1)cnt++;b.classList.toggle('used',cnt>=9)}
+            });
+        }
+
+        function done(){for(let r=0;r<9;r++)for(let c=0;c<9;c++)if(board[r][c]===0)return false;return true}
+        function right(){for(let r=0;r<9;r++)for(let c=0;c<9;c++)if(board[r][c]!==solution[r][c])return false;return true}
+        function fmt(t){const m=Math.floor(t/60),s=t%60;return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
+
+        document.querySelectorAll('.diffBtn').forEach(b=>{
+            b.addEventListener('click',()=>{
+                document.querySelectorAll('.diffBtn').forEach(x=>x.classList.remove('active'));
+                b.classList.add('active');diff=b.dataset.diff;gen();
+                const best=localStorage.getItem('sb_'+diff);bestEl.textContent=best?fmt(parseInt(best)):'--';
+            });
+        });
+        document.querySelectorAll('.numBtn').forEach((b,i)=>{
+            b.addEventListener('click',()=>{if(i<9)place(i+1);else{noteMode=!noteMode;document.getElementById('noteBtn').classList.toggle('active',noteMode)}});
+        });
+        document.getElementById('eraseBtn').addEventListener('click',erase);
+        document.getElementById('noteBtn').addEventListener('click',()=>{noteMode=!noteMode;document.getElementById('noteBtn').classList.toggle('active',noteMode)});
+        document.getElementById('newBtn').addEventListener('click',()=>{gen();const best=localStorage.getItem('sb_'+diff);bestEl.textContent=best?fmt(parseInt(best)):'--';});
+
+        gen();const best=localStorage.getItem('sb_easy');bestEl.textContent=best?fmt(parseInt(best)):'--';
+    </script>
+</body>
+</html>
