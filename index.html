@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>سودوكو - Sudoku</title>
+    <style>
+        :root{--safe-bottom:env(safe-area-inset-bottom,8px)}
+        *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+        body{background:#1a1a2e;overflow-y:auto;touch-action:manipulation;position:fixed;top:0;left:0;width:100vw;height:100dvh;font-family:Arial,sans-serif;display:flex;align-items:center;justify-content:center}
+        #container{width:100%;max-width:420px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:8px}
+        #header{display:flex;justify-content:space-between;align-items:center;width:100%;color:#fff}
+        #header h1{font-size:1.3em;color:#ff9800}
+        #difficulty{display:flex;gap:4px}
+        .diffBtn{padding:6px 10px;border:none;border-radius:12px;font-size:0.65em;font-weight:bold;cursor:pointer;background:#333;color:#aaa;transition:all 0.2s}
+        .diffBtn.active{background:#ff9800;color:#000}
+        #info{display:flex;justify-content:space-between;width:100%;color:#ccc;font-size:0.75em}
+        #timer{color:#ffd700;font-weight:bold}
+        #board{display:grid;grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(9,1fr);width:100%;aspect-ratio:1;background:#000;border:3px solid #ff9800;border-radius:6px;overflow:hidden;gap:1px}
+        .cell{display:flex;align-items:center;justify-content:center;font-size:1.15em;font-weight:bold;cursor:pointer;background:#16213e;transition:all 0.15s;position:relative;color:#e0e0e0;width:100%;height:100%;margin:0;padding:0;border:none}
+        .cell.given{color:#fff}
+        .cell.user{color:#4fc3f7}
+        .cell.error{color:#f44336;animation:shake 0.4s}
+        .cell.selected{background:#0f3460;box-shadow:inset 0 0 0 3px #ff9800;z-index:2}
+        .cell.sameNum{background:rgba(255,152,0,0.25)}
+        .cell.related{background:rgba(15,52,96,0.7)}
+        .notes{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);width:100%;height:100%;font-size:0.3em;color:#aaa;position:absolute;top:0;left:0}
+        .notes span{display:flex;align-items:center;justify-content:center}
+        #numpad{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;width:100%}
+        .numBtn{padding:11px;border:none;border-radius:8px;font-size:1.1em;font-weight:bold;cursor:pointer;background:#16213e;color:#fff;transition:all 0.15s;border:2px solid #0f3460}
+        .numBtn:active{background:#ff9800;color:#000;transform:scale(0.9)}
+        .numBtn.used{opacity:0.3;pointer-events:none}
+        #actions{display:flex;gap:5px;width:100%}
+        .actBtn{flex:1;padding:10px;border:none;border-radius:8px;font-size:0.85em;font-weight:bold;cursor:pointer;background:#333;color:#fff;transition:all 0.15s}
+        .actBtn:active{transform:scale(0.95)}
+        #eraseBtn{background:#f44336}
+        #noteBtn{background:#2196F3}
+        #noteBtn.active{background:#ff9800;color:#000}
+        #newBtn{background:#4caf50}
+        #message{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.9);color:#ffd700;padding:10px 25px;border-radius:20px;font-weight:bold;z-index:100;opacity:0;transition:opacity 0.3s;white-space:nowrap}
+        #message.show{opacity:1}
+        @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="header"><h1>🧩 سودوكو</h1>
+            <div id="difficulty"><button class="diffBtn active" data-diff="easy">سهل</button><button class="diffBtn" data-diff="medium">متوسط</button><button class="diffBtn" data-diff="hard">صعب</button></div>
+        </div>
+        <div id="info"><span id="timer">⏱️ 00:00</span><span>🏆 أفضل: <span id="bestTime">--</span></span></div>
+        <div id="board"></div>
+        <div id="numpad">
+            <button class="numBtn">1</button><button class="numBtn">2</button><button class="numBtn">3</button><button class="numBtn">4</button><button class="numBtn">5</button>
+            <button class="numBtn">6</button><button class="numBtn">7</button><button class="numBtn">8</button><button class="numBtn">9</button><button class="numBtn" style="background:#ff9800;color:#000">✓</button>
+        </div>
+        <div id="actions">
+            <button class="actBtn" id="eraseBtn">🗑️ مسح</button>
+            <button class="actBtn" id="noteBtn">📝 ملاحظات</button>
+            <button class="actBtn" id="newBtn">🔄 جديد</button>
+        </div>
+    </div>
+    <div id="message"></div>
+
+    <script>
+        const boardEl=document.getElementById('board');
+        const timerEl=document.getElementById('timer');
+        const bestEl=document.getElementById('bestTime');
+        const messageEl=document.getElementById('message');
+        let board=[],solution=[],notes=[],selectedCell=null,noteMode=false,timer=0,timerInterval=null,gameOver=false,difficulty='easy';
+        const clues={easy:40,medium:30,hard:22};
+
+        function showMessage(msg){messageEl.textContent=msg;messageEl.classList.add('show');setTimeout(()=>messageEl.classList.remove('show'),1800)}
+
+        function generateSudoku(){
+            const grid=Array(9).fill().map(()=>Array(9).fill(0));
+            function isValid(g,r,c,n){
+                for(let i=0;i<9;i++){if(g[r][i]===n||g[i][c]===n)return false}
+                const sr=Math.floor(r/3)*3,sc=Math.floor(c/3)*3;
+                for(let i=sr;i<sr+3;i++){for(let j=sc;j<sc+3;j++){if(g[i][j]===n)return false}}
+                return true;
+            }
+            function fill(g){
+                for(let r=0;r<9;r++){for(let c=0;c<9;c++){if(g[r][c]===0){
+                    const nums=[1,2,3,4,5,6,7,8,9].sort(()=>Math.random()-0.5);
+                    for(let n of nums){if(isValid(g,r,c,n)){g[r][c]=n;if(fill(g))return true;g[r][c]=0}}
+                    return false;
+                }}}
+                return true;
+            }
+            fill(grid);
+            solution=grid.map(r=>[...r]);
+            const cellsToRemove=81-clues[difficulty];
+            const boardCopy=grid.map(r=>[...r]);
+            const positions=[];
+            for(let r=0;r<9;r++)for(let c=0;c<9;c++)positions.push([r,c]);
+            positions.sort(()=>Math.random()-0.5);
+            for(let i=0;i<cellsToRemove;i++){const[r,c]=positions[i];boardCopy[r][c]=0}
+            board=boardCopy;
+            notes=Array(9).fill().map(()=>Array(9).fill().map(()=>[]));
+            selectedCell=null;noteMode=false;gameOver=false;timer=0;
+            clearInterval(timerInterval);timerInterval=setInterval(()=>{if(!gameOver){timer++;updateTimer()}},1000);
+            updateTimer();renderBoard();updateNumPad();
+        }
+
+        function updateTimer(){const m=Math.floor(timer/60),s=timer%60;timerEl.textContent=`⏱️ ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
+
+        function renderBoard(){
+            boardEl.innerHTML='';
+            // إنشاء الخلايا يدوياً عشان نتحكم في كل حاجة
+            const fragment=document.createDocumentFragment();
+            for(let r=0;r<9;r++){
+                for(let c=0;c<9;c++){
+                    const cell=document.createElement('div');
+                    cell.className='cell';
+                    cell.style.gridRow=(r+1);
+                    cell.style.gridColumn=(c+1);
+                    
+                    // حدود سميكة بين المربعات - كل 3 خلايا
+                    if(c===2||c===5)cell.style.borderRight='2px solid #ff9800';
+                    if(r===2||r===5)cell.style.borderBottom='2px solid #ff9800';
+                    
+                    if(board[r][c]!==0){
+                        cell.textContent=board[r][c];
+                        cell.classList.add(solution[r][c]===board[r][c]?'given':'user');
+                        if(solution[r][c]!==board[r][c]&&board[r][c]!==0)cell.classList.add('error');
+                    }
+                    if(notes[r][c].length>0&&board[r][c]===0){
+                        const notesDiv=document.createElement('div');notesDiv.className='notes';
+                        for(let n=1;n<=9;n++){
+                            const span=document.createElement('span');
+                            span.textContent=notes[r][c].includes(n)?n:'';
+                            notesDiv.appendChild(span);
+                        }
+                        cell.appendChild(notesDiv);
+                    }
+                    if(selectedCell&&selectedCell.r===r&&selectedCell.c===c)cell.classList.add('selected');
+                    if(selectedCell&&board[r][c]!==0&&board[selectedCell.r]&&board[r][c]===board[selectedCell.r][selectedCell.c]&&board[r][c]!==0)cell.classList.add('sameNum');
+                    if(selectedCell&&(r===selectedCell.r||c===selectedCell.c||(Math.floor(r/3)===Math.floor(selectedCell.r/3)&&Math.floor(c/3)===Math.floor(selectedCell.c/3))))cell.classList.add('related');
+                    
+                    cell.addEventListener('click',()=>selectCell(r,c));
+                    fragment.appendChild(cell);
+                }
+            }
+            boardEl.appendChild(fragment);
+        }
+
+        function selectCell(r,c){
+            if(board[r][c]!==0&&solution[r][c]===board[r][c])return;
+            selectedCell={r,c};renderBoard();updateNumPad();
+        }
+
+        function placeNumber(n){
+            if(!selectedCell||gameOver)return;
+            const{r,c}=selectedCell;
+            if(board[r][c]!==0&&solution[r][c]===board[r][c])return;
+            if(noteMode){
+                if(board[r][c]===0){
+                    if(notes[r][c].includes(n))notes[r][c]=notes[r][c].filter(x=>x!==n);
+                    else notes[r][c].push(n);
+                }
+            }else{
+                notes[r][c]=[];
+                if(board[r][c]===n){board[r][c]=0}else{board[r][c]=n}
+                if(board[r][c]!==0&&solution[r][c]!==board[r][c])showMessage('❌ رقم غلط!');
+                if(isComplete()&&isCorrect()){
+                    gameOver=true;clearInterval(timerInterval);
+                    showMessage('🎉 مبروك! كسبت!');
+                    const best=localStorage.getItem('sudokuBest_'+difficulty);
+                    if(!best||timer<parseInt(best)){
+                        localStorage.setItem('sudokuBest_'+difficulty,timer);
+                        bestEl.textContent=formatTime(timer);
+                        showMessage('🏆 رقم قياسي جديد!');
+                    }
+                }
+            }
+            renderBoard();updateNumPad();
+        }
+
+        function eraseCell(){
+            if(!selectedCell||gameOver)return;
+            const{r,c}=selectedCell;
+            if(board[r][c]!==0&&solution[r][c]!==board[r][c]){board[r][c]=0;notes[r][c]=[]}
+            renderBoard();updateNumPad();
+        }
+
+        function updateNumPad(){
+            const btns=document.querySelectorAll('.numBtn');
+            btns.forEach((btn,i)=>{
+                if(i<9){
+                    const n=i+1;
+                    let count=0;
+                    for(let r=0;r<9;r++)for(let c=0;c<9;c++)if(board[r][c]===n)count++;
+                    btn.classList.toggle('used',count>=9);
+                }
+            });
+        }
+
+        function isComplete(){for(let r=0;r<9;r++)for(let c=0;c<9;c++)if(board[r][c]===0)return false;return true}
+        function isCorrect(){for(let r=0;r<9;r++)for(let c=0;c<9;c++)if(board[r][c]!==solution[r][c])return false;return true}
+        function formatTime(t){const m=Math.floor(t/60),s=t%60;return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
+
+        document.querySelectorAll('.diffBtn').forEach(btn=>{
+            btn.addEventListener('click',()=>{
+                document.querySelectorAll('.diffBtn').forEach(b=>b.classList.remove('active'));
+                btn.classList.add('active');
+                difficulty=btn.dataset.diff;
+                generateSudoku();
+                const best=localStorage.getItem('sudokuBest_'+difficulty);
+                bestEl.textContent=best?formatTime(parseInt(best)):'--';
+            });
+        });
+        document.querySelectorAll('.numBtn').forEach((btn,i)=>{
+            btn.addEventListener('click',()=>{
+                if(i<9)placeNumber(i+1);
+                else{noteMode=!noteMode;document.getElementById('noteBtn').classList.toggle('active',noteMode);}
+            });
+        });
+        document.getElementById('eraseBtn').addEventListener('click',eraseCell);
+        document.getElementById('noteBtn').addEventListener('click',()=>{
+            noteMode=!noteMode;document.getElementById('noteBtn').classList.toggle('active',noteMode);
+        });
+        document.getElementById('newBtn').addEventListener('click',()=>{
+            generateSudoku();
+            const best=localStorage.getItem('sudokuBest_'+difficulty);
+            bestEl.textContent=best?formatTime(parseInt(best)):'--';
+        });
+
+        generateSudoku();
+        const best=localStorage.getItem('sudokuBest_easy');
+        bestEl.textContent=best?formatTime(parseInt(best)):'--';
+    </script>
+</body>
+</html>
